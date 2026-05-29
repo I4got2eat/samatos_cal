@@ -11,8 +11,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 # ── Config ────────────────────────────────────────────────────────────────────
-API_KEY = "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"
-DB_PATH = r"C:\Users\Mykolas\claude_sessions\samata.db"
+API_KEY = st.secrets["ANTHROPIC_API_KEY"]
+DB_PATH = "samata.db"
 
 # Standard Lithuanian sąmata overhead rates
 OVERHEAD = {
