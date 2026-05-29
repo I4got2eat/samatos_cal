@@ -82,20 +82,13 @@ def extract_table_data(base64_image):
 
 
 # ── AI matching ───────────────────────────────────────────────────────────────
-def match_items_to_resources(parsed_df, resources_df):
-    client = Anthropic(api_key=API_KEY)
+MATCH_BATCH_SIZE = 8  # items per API call to stay well within output token limit
 
-    resources_text = "\n".join(
-        f"{r['code']} | {r['name']} | {r['unit']} | {r['unit_price'] if r['unit_price'] else 'N/A'} EUR | {r['category']}"
-        for _, r in resources_df.iterrows()
-    )
-
-    items_text = parsed_df.to_json(orient="records", force_ascii=False, indent=2)
-
+def _match_batch(client, items_json, resources_text):
     prompt = f"""You are a strict Lithuanian construction cost estimator working with the Astera sąmata system.
 
 Below are construction specification items extracted from a client project PDF:
-{items_text}
+{items_json}
 
 Below is the COMPLETE price database you are allowed to use (format: code | name | unit | unit_price | category):
 {resources_text}
@@ -137,15 +130,32 @@ Return a JSON array where each element has this exact structure:
 
 Return ONLY a valid JSON array, no markdown, no explanation.
 """
-
     response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=8192,
+        temperature=0,
         messages=[{"role": "user", "content": prompt}],
     )
     raw = response.content[0].text.strip()
-    match = re.search(r"\[.*\]", raw, re.DOTALL)
-    return json.loads(match.group(0) if match else raw)
+    m = re.search(r"\[.*\]", raw, re.DOTALL)
+    return json.loads(m.group(0) if m else raw)
+
+
+def match_items_to_resources(parsed_df, resources_df):
+    client = Anthropic(api_key=API_KEY)
+
+    resources_text = "\n".join(
+        f"{r['code']} | {r['name']} | {r['unit']} | {r['unit_price'] if r['unit_price'] else 'N/A'} EUR | {r['category']}"
+        for _, r in resources_df.iterrows()
+    )
+
+    records = parsed_df.to_dict(orient="records")
+    results = []
+    for i in range(0, len(records), MATCH_BATCH_SIZE):
+        batch = records[i : i + MATCH_BATCH_SIZE]
+        items_json = json.dumps(batch, ensure_ascii=False, indent=2)
+        results.extend(_match_batch(client, items_json, resources_text))
+    return results
 
 
 # ── Cost rollup ───────────────────────────────────────────────────────────────
@@ -620,7 +630,7 @@ def render_samata_html(matched_items, project_name=""):
 # ── Streamlit app ─────────────────────────────────────────────────────────────
 import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Sąmatos skaičiavimas", layout="wide")
+st.set_page_config(page_title="Sąmatos skaičiavimas", layout="wide", page_icon="🏗️")
 
 st.markdown("""
 <style>
@@ -674,7 +684,9 @@ if st.button("Generuoti sąmatą", type="primary", use_container_width=True):
             st.session_state["parsed_data"] = all_data
             st.session_state["project_name"] = project_name
 
-            with st.spinner("2/2 · AI derina pozicijas su kainų duomenų baze..."):
+            n_items = len(all_data)
+            n_batches = (n_items + MATCH_BATCH_SIZE - 1) // MATCH_BATCH_SIZE
+            with st.spinner(f"2/2 · AI derina {n_items} pozicijų ({n_batches} partijomis)..."):
                 try:
                     parsed_df = pd.DataFrame(all_data)
                     matched = match_items_to_resources(parsed_df, resources_df)
@@ -687,12 +699,6 @@ if "matched" in st.session_state:
     matched = st.session_state["matched"]
     t = compute_totals(matched)
     na_count = sum(1 for i in matched if i.get("status") == "no_match" or not i.get("matched_resources"))
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Darbas", f"€ {t['labor']:,.0f}")
-    c2.metric("Medžiagos", f"€ {t['materials']:,.0f}")
-    c3.metric("Mechanizmai", f"€ {t['machinery']:,.0f}")
-    c4.metric("Iš viso su PVM", f"€ {t['t5']:,.0f}")
 
     if na_count:
         st.warning(f"**{na_count}** pozicija (-os) nepavyko suderinti su duomenų baze ir pažymėtos **NA**.")
