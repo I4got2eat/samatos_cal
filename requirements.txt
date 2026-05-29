@@ -2,3 +2,4 @@ streamlit
 PyMuPDF
 anthropic
 pandas
+openpyxl
