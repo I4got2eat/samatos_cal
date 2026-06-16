@@ -6,6 +6,7 @@ import pandas as pd
 import re
 import sqlite3
 import io
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from anthropic import Anthropic
 from openpyxl import Workbook
@@ -16,7 +17,7 @@ from openpyxl.utils import get_column_letter
 # ── Config ────────────────────────────────────────────────────────────────────
 # API key lives in .streamlit/secrets.toml (ANTHROPIC_API_KEY = "sk-ant-...")
 API_KEY = st.secrets["ANTHROPIC_API_KEY"]
-DB_PATH = r"C:\Users\Mykolas\claude_sessions\samata.db"
+DB_PATH = Path(__file__).parent / "samata.db"
 
 # Standard Lithuanian sąmata overhead rates
 OVERHEAD = {
